@@ -16,7 +16,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { href: '/',          label: 'Home',       Icon: Home,  color: 'violet' },
-  { href: '/first-aid', label: 'First Aids', Icon: Heart, color: 'pink'   },
+  { href: '/first-aids', label: 'First Aids', Icon: Heart, color: 'pink'   },
   { href: '/snakes',    label: 'Snakes',     Icon: Search,color: 'amber'  },
   { href: '/request',   label: 'Request',    Icon: Search,color: 'amber'  },
   { href: '/notification',   label: 'notification',    Icon: Search,color: 'amber'  },
@@ -37,7 +37,7 @@ export default function GlassBottomNav() {
 
   return (
     <nav aria-label="Primary" className="fixed left-1/2 z-50 -translate-x-1/2 bottom-[calc(env(safe-area-inset-bottom,0)+1rem)]">
-      <ul className="flex items-center gap-2 rounded-3xl border border-white/25 bg-white/30 p-2 shadow-lg ring-1 ring-black/5 backdrop-blur-xl supports-[backdrop-filter]:bg-white/20 dark:bg-slate-900/30 dark:border-white/10 dark:ring-white/10">
+      <ul className="flex items-center gap-2 rounded-3xl border border-white/25 bg-white/30 p-3 shadow-lg ring-1 ring-black/5 backdrop-blur-xl supports-[backdrop-filter]:bg-white/20 dark:bg-slate-900/30 dark:border-white/10 dark:ring-white/10">
         {NAV.map(({ href, label, Icon, color }) => {
           const active = pathname === href || (href !== '/' && pathname.startsWith(`${href}`));
 

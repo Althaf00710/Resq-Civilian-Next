@@ -3,6 +3,7 @@ import { Poppins } from 'next/font/google';
 import './globals.css';
 import GlassBottomNav from '@/components/shared/GlassBottomNav';
 import Providers from './providers'; 
+import Footer from '@/components/shared/Footer';
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           {children}
           <GlassBottomNav />
+          <Footer/>
         </Providers>
       </body>
     </html>
