@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef } from 'react';
-import { Check, Clock } from 'lucide-react';
+import { Check, Clock, BriefcaseMedical  } from 'lucide-react';
 import Image from 'next/image';
 import LottiePlayer from '@/components/shared/LottiePlayer';
 
@@ -25,6 +25,7 @@ type Props = {
   allowClose?: boolean;
   onClose?: () => void;
   cancelRequest: () => void;
+  onFirstAidClick?: () => void;
 };
 
 const statusKey = (s?: string) => (s ?? '').toLowerCase();
@@ -75,6 +76,7 @@ export default function RequestStatusModal({
   allowClose = false,
   onClose,
   cancelRequest,
+  onFirstAidClick,
 }: Props) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
@@ -209,11 +211,23 @@ export default function RequestStatusModal({
             </div>
           )}
 
-          {/* Meta */}
+          {/* Meta + First Aid button (right aligned) */}
           {createdText && (
-            <div className="flex items-center gap-2 px-5 py-4 text-xs text-neutral-600 dark:text-neutral-400">
-              <Clock className="h-4 w-4" />
-              Created at {createdText}
+            <div className="flex items-center justify-between px-5 py-4">
+              <div className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
+                <Clock className="h-4 w-4" />
+                <span>Created at {createdText}</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={onFirstAidClick}
+                className="inline-flex items-center gap-2 rounded-2xl cursor-pointer bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-orange-600 active:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-400/60"
+                aria-label="Open First Aid"
+              >
+                <BriefcaseMedical className="h-4 w-4" />
+                First Aid
+              </button>
             </div>
           )}
         </div>

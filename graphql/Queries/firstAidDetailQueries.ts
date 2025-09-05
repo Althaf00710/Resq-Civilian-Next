@@ -15,3 +15,19 @@ export const GET_ALL_FIRST_AID_DETAILS = gql`
     }
   }
 `;
+
+export const GET_FIRST_AID_DETAILS_BY_SUBCATEGORY = gql`
+  query GetFirstAidDetailsBySubCategory($emergencySubCategoryId: Int!) {
+    firstAidDetailsBySubCategoryId(emergencySubCategoryId: $emergencySubCategoryId) {
+      id
+      displayOrder
+      emergencySubCategoryId
+      emergencySubCategory {
+        name
+        description
+      }
+      imageUrl
+      point
+    }
+  }
+`;

@@ -19,14 +19,15 @@ type Payload = {
       proofImageURL?: string | null;
       status?: string | null;
       emergencySubCategory?: { name?: string | null } | null;
-      civilian?: { name?: string | null } | null;
+      civilian?: { name?: string | null; phoneNumber?: string | null } | null;
     };
   };
 };
 
 const TEN_MIN_MS = 10 * 60 * 1000;
 const CIVILIAN_KEY = 'resq_civilian';
-const storageKey = (civilianId: number | string) => `notification`;
+// ✅ make key match the one the bottom nav uses:
+const storageKey = (civilianId: number | string) => `c-${civilianId}-notification`;
 
 const safeParse = <T,>(s: string | null): T | null => {
   if (!s) return null;
@@ -39,11 +40,11 @@ const safeParse = <T,>(s: string | null): T | null => {
 };
 
 const readList = (key: string) => {
-  try { 
+  try {
     const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : []; 
-  } catch { 
-    return []; 
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
   }
 };
 
@@ -76,7 +77,7 @@ const pruneOld = (list: any[]) => {
 export default function NearbyEmergencySubscriber() {
   const { isLoggedIn, civilian, user } = useAuth() as any;
 
-  // Robust civilian id resolution (auth → user → LS)
+  // Resolve civilian id from auth / user / localStorage
   const civilianId = useMemo<number | null>(() => {
     const direct = Number.parseInt(String(civilian?.id ?? user?.id ?? ''), 10);
     if (Number.isFinite(direct)) return direct;
@@ -88,7 +89,6 @@ export default function NearbyEmergencySubscriber() {
     return null;
   }, [civilian?.id, user?.id]);
 
-  // Don't over-gate; just require we've resolved an id
   const shouldSubscribe = Boolean(isLoggedIn && civilianId);
 
   useEffect(() => {
@@ -103,7 +103,7 @@ export default function NearbyEmergencySubscriber() {
     fetchPolicy: 'no-cache',
     onData: ({ data: result }) => {
       console.log('📡 Subscription received data:', result);
-      
+
       const payload = result.data?.onNearbyEmergency;
       const e = payload?.emergency;
       if (!payload || !e) {
@@ -112,17 +112,28 @@ export default function NearbyEmergencySubscriber() {
       }
 
       console.log('🚨 Processing emergency:', e.id);
-      
+
       const key = storageKey(payload.civilianId);
+
+      // ✅ Store richer payload so the UI can render a detailed card
       const item = {
         id: String(e.id),
-        title: `Emergency nearby: ${e.emergencySubCategory?.name ?? 'Emergency'}`,
-        message:
-          (e.description && e.description.trim()) ||
-          (e.address ? `Reported at ${e.address}` : 'A nearby emergency was reported'),
+        type: 'nearby-emergency',
+        title: 'Someone near needs your help',
+        message: e.emergencySubCategory?.name ?? 'Emergency',
         createdAt: e.createdAt ?? new Date().toISOString(),
         createdAtClient: new Date().toISOString(),
         read: false,
+        meta: {
+          emergencyId: String(e.id),
+          categoryName: e.emergencySubCategory?.name ?? null,
+          address: e.address ?? null,
+          civilianName: e.civilian?.name ?? null,
+          phoneNumber: e.civilian?.phoneNumber ?? null,
+          latitude: e.latitude,
+          longitude: e.longitude,
+          description: e.description ?? null,
+        },
       };
 
       console.log('📋 Notification item:', item);
@@ -136,13 +147,12 @@ export default function NearbyEmergencySubscriber() {
       try {
         const current = pruneOld(readList(key));
         console.log('📂 Current notifications in LS:', current.length);
-        
+
         const next = current.find((n: any) => n.id === item.id)
           ? current
           : [item, ...current].slice(0, 50);
-        
+
         writeList(key, next);
-        
       } catch (err) {
         console.warn('❌ Failed to persist notification', err);
       }
@@ -158,7 +168,7 @@ export default function NearbyEmergencySubscriber() {
   // periodic prune keeps LS fresh even if no new events
   useEffect(() => {
     if (!civilianId) return;
-    
+
     const key = storageKey(civilianId);
     const tick = () => {
       const current = readList(key);
@@ -168,7 +178,7 @@ export default function NearbyEmergencySubscriber() {
         console.log('🧹 Pruned old notifications. Before:', current.length, 'After:', pruned.length);
       }
     };
-    
+
     tick();
     const id = window.setInterval(tick, 60_000);
     return () => clearInterval(id);
@@ -177,41 +187,49 @@ export default function NearbyEmergencySubscriber() {
   return null;
 }
 
-// Add test function to window for debugging
+// Debug helpers
 if (typeof window !== 'undefined') {
   (window as any).testNotificationStorage = (testCivilianId: number = 2) => {
+    const key = storageKey(testCivilianId);
     const testItem = {
       id: 'test-' + Date.now(),
-      title: 'Test Emergency',
-      message: 'This is a test notification from console',
+      type: 'nearby-emergency',
+      title: 'Someone near needs your help',
+      message: 'Heart Attack',
       createdAt: new Date().toISOString(),
       createdAtClient: new Date().toISOString(),
       read: false,
+      meta: {
+        emergencyId: 'test',
+        categoryName: 'Heart Attack',
+        address: '123 Main St',
+        civilianName: 'John Doe',
+        phoneNumber: '0771234567',
+        latitude: 0,
+        longitude: 0,
+        description: 'Test',
+      },
     };
-    
-    const key = storageKey(testCivilianId);
+
     const current = readList(key);
     const next = [testItem, ...current].slice(0, 50);
     writeList(key, next);
-    console.log('🧪 Test notification stored for civilian:', testCivilianId);
-    
-    // Also dispatch push event
-    window.dispatchEvent(new CustomEvent('resq:notification-push', { 
-      detail: { key, item: testItem } 
-    }));
+
+    window.dispatchEvent(new CustomEvent('resq:notification-push', { detail: { key, item: testItem } }));
+    console.log('🧪 Test notification stored for key:', key);
   };
 
   (window as any).checkNotifications = (civilianId: number = 2) => {
     const key = storageKey(civilianId);
     const notifications = readList(key);
-    console.log('📊 Notifications for civilian', civilianId, ':', notifications);
+    console.log('📊 Notifications for key', key, ':', notifications);
     return notifications;
   };
 
   (window as any).clearNotifications = (civilianId: number = 2) => {
     const key = storageKey(civilianId);
     localStorage.removeItem(key);
-    console.log('🗑️ Cleared notifications for civilian:', civilianId);
+    console.log('🗑️ Cleared notifications for key:', key);
     window.dispatchEvent(new CustomEvent('resq:notifications-changed', { detail: { key } }));
   };
 }

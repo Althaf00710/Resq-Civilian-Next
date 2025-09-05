@@ -15,9 +15,9 @@ export default function NotificationLabel({ count = 0, className = '', showDotIf
   return (
     <span
       className={[
-        'absolute -right-0.5 -top-0.5 min-w-[18px] h-[18px]',
+        'absolute -right-2 -top-3 min-w-[18px] h-[18px]',
         'rounded-full px-1.5 text-[10px] leading-[18px] text-white',
-        'bg-rose-500 ring-2 ring-white dark:ring-slate-900',
+        'bg-rose-500/70',
         'flex items-center justify-center',
         className,
       ].join(' ')}

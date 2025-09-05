@@ -15,7 +15,10 @@ export const ON_NEARBY_EMERGENCY = gql`
         proofImageURL
         status
         emergencySubCategory { name }
-        civilian { name }
+        civilian { 
+          name
+          phoneNumber 
+        }
       }
     }
   }

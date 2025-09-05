@@ -2,11 +2,12 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import { useQuery, useMutation, useSubscription, gql } from '@apollo/client';
+import { useQuery, useMutation, useSubscription, gql, useLazyQuery } from '@apollo/client';
 import Swal from 'sweetalert2';
 
 import EmergencyRequestModal from '@/components-page/request/EmergencyRequestModal';
 import RequestStatusModal from '@/components-page/request/RequestStatusModal';
+import { FirstAidGalleryModal } from '../first-aids/page';
 
 import { GET_EMERGENCY_WITH_SUB } from '@/graphql/Queries/emergencyCategoryQueries';
 import type { GetEmergencyCategoriesData } from '@/graphql/types/emergencyCategory';
@@ -16,6 +17,8 @@ import { CANCEL_RESCUE_VEHICLE_REQUEST } from '@/graphql/mutations/rescueVehicle
 
 import { VEHICLE_REQUEST_STATUS_SUB } from '@/graphql/subscriptions/vehicleRequestSubscription';
 import { VEHICLE_LOCATION_SHARE_SUB } from '@/graphql/subscriptions/vehicleLocationSubscription';
+
+import { GET_FIRST_AID_DETAILS_BY_SUBCATEGORY } from '@/graphql/Queries/firstAidDetailQueries';
 
 import type { OnRescueVehicleRequestStatusChangedPayload } from '@/graphql/types/rescueVehicleRequest';
 import { loadSession } from '@/lib/auth';
@@ -45,21 +48,26 @@ export default function Page() {
     iconify?: string;
   } | null>(null);
 
-  // NEW: details for the status modal
+  // Status modal “vehicle details” row
   const [vehicleCode, setVehicleCode] = useState<string | null>(null);
   const [plateNumber, setPlateNumber] = useState<string | null>(null);
+
+  // First Aid
+  const [showFirstAid, setShowFirstAid] = useState(false);
+  const [subCategoryId, setSubCategoryId] = useState<number | null>(null);
 
   const [picked, setPicked] = useState<{ lat: number; lng: number; address?: string | null } | null>(null);
   const [showReqModal, setShowReqModal] = useState(true);
   const [showStatusModal, setShowStatusModal] = useState(false);
 
-  // --- Reopen request UI after cancel ---
+  // --- Reopen request UI after cancel/completed ---
   const reopenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleReopen = useCallback(() => {
     if (reopenTimerRef.current) clearTimeout(reopenTimerRef.current);
     reopenTimerRef.current = setTimeout(() => {
       setShowStatusModal(false);
       setShowReqModal(true);
+      setShowFirstAid(false);
       setRequestId(null);
       setVehicleId(null);
       setVehicleMarker(null);
@@ -68,6 +76,8 @@ export default function Page() {
       setPicked(null);
       setCreatedAt(undefined);
       setStatus('Searching');
+      setSubCategoryId(null);
+      // keep the last subcategory id in localStorage in case you need it after refresh
     }, 5000);
   }, []);
   useEffect(() => {
@@ -75,9 +85,6 @@ export default function Page() {
       if (reopenTimerRef.current) clearTimeout(reopenTimerRef.current);
     };
   }, []);
-  useEffect(() => {
-    if ((status ?? '').toLowerCase().includes('cancel')) scheduleReopen();
-  }, [status, scheduleReopen]);
 
   // --- Session / Civilian ---
   const [civilianIdNum, setCivilianIdNum] = useState<number | null>(null);
@@ -142,6 +149,11 @@ export default function Page() {
             : undefined,
       });
     }
+
+    // If you also want First Aid on refresh, consider extending this query to include the subcategory id.
+    // Otherwise we rely on the value stored at request creation time (below).
+    const lastSaved = typeof window !== 'undefined' ? window.localStorage.getItem('lastFirstAidSubId') : null;
+    if (lastSaved) setSubCategoryId(Number(lastSaved));
   }, [rescueData]);
 
   // Helpers to read sub payload shapes
@@ -194,29 +206,24 @@ export default function Page() {
     if (statusSubErr) console.error('[SUB][status] error:', statusSubErr);
   }, [statusData, statusSubErr]);
 
-  // --- Location subscription (starts when not Searching & not terminal) ---
-  const isSearching  = /search/i.test(status || '');
-  const isCompleted  = /(complete|done)/i.test(status || '');   // Completed/Done
-  const isActiveLeg  = /dispatch|arriv/i.test(status || '');    // Dispatched or Arrived
-  const shouldTrack  = !!vehicleId && isActiveLeg && !isSearching && !isCompleted;
+  // Track/stop logic
+  const isSearching   = /search/i.test(status || '');
+  const isCompleted   = /(complete|done)/i.test(status || '');
+  const isCancelled   = /cancel/i.test(status || '');
+  const isActiveLeg   = /dispatch|arriv/i.test(status || '');
+  const shouldTrack   = !!vehicleId && isActiveLeg && !isSearching && !isCompleted;
 
-  // On Completed → fully reset to "create request" view
+  // Schedule reopen for both Cancelled **and** Completed
+  useEffect(() => {
+    if (isCancelled || isCompleted) scheduleReopen();
+  }, [isCancelled, isCompleted, scheduleReopen]);
+
+  // Immediately stop tracking on Completed (keep modal for 5s)
   useEffect(() => {
     if (!isCompleted) return;
-
     setVehicleMarker(null);
     setVehicleId(null);
-    setVehicleCode(null);
-    setPlateNumber(null);
-    setRequestId(null);
-    setPicked(null);
-    setCreatedAt(undefined);
-    setStatus('Searching');
-
-    setShowStatusModal(false);
-    setShowReqModal(true);
-
-    console.log('[FLOW] Completed → reset UI and stop tracking');
+    console.log('[FLOW] Completed → stop tracking; modal stays for 5s');
   }, [isCompleted]);
 
   // helpful debug: when tracking flips on/off
@@ -224,9 +231,8 @@ export default function Page() {
     console.log('[SUB][loc] tracking state →', { shouldTrack, vehicleId, status });
   }, [shouldTrack, vehicleId, status]);
 
-  // event counter for pretty logs
+  // Location subscription
   const locEvtCount = useRef(0);
-
   const { data: locData, error: locSubErr } = useSubscription(VEHICLE_LOCATION_SHARE_SUB, {
     variables: shouldTrack ? { rescueVehicleId: Number(vehicleId) } : undefined,
     skip: !shouldTrack,
@@ -279,6 +285,22 @@ export default function Page() {
       });
     }
   }, [locSubErr]);
+
+  // --- First Aid fetching ---
+  // Lazy query so we can (re)fetch on-demand when opening the gallery
+  const [fetchFirstAid, { data: firstAidData, loading: firstAidLoading }] =
+    useLazyQuery(GET_FIRST_AID_DETAILS_BY_SUBCATEGORY, {
+      fetchPolicy: 'network-only',
+    });
+
+  const firstAidItems = firstAidData?.firstAidDetailsBySubCategoryId ?? [];
+
+  // If gallery opened and we have a subCategoryId, ensure data is loaded/refreshed
+  useEffect(() => {
+    if (showFirstAid && subCategoryId) {
+      fetchFirstAid({ variables: { emergencySubCategoryId: subCategoryId } });
+    }
+  }, [showFirstAid, subCategoryId, fetchFirstAid]);
 
   // --- Cancel flow ---
   const handleCancelRequest = useCallback(async () => {
@@ -378,6 +400,12 @@ export default function Page() {
                 throw new Error(res?.message || 'Failed to create request');
               }
 
+              // Save subcategory for First Aid
+              setSubCategoryId(subIdNum);
+              if (typeof window !== 'undefined') {
+                window.localStorage.setItem('lastFirstAidSubId', String(subIdNum));
+              }
+
               setRequestId(res.rescueVehicleRequest.id);
               setStatus(res.rescueVehicleRequest.status);
               setCreatedAt(res.rescueVehicleRequest.createdAt);
@@ -395,12 +423,32 @@ export default function Page() {
         <RequestStatusModal
           isOpen
           data={{ id: requestId, status, createdAt }}
-          // 👇 pass vehicle details for the modal to display
           vehicle={{ code: vehicleCode ?? undefined, plateNumber: plateNumber ?? undefined, iconUrl: '/vehicle.png' }}
           allowClose
           onClose={() => setShowStatusModal(false)}
           cancelRequest={handleCancelRequest}
+          onFirstAidClick={() => {
+            if (!subCategoryId) {
+              const lastSaved = typeof window !== 'undefined' ? window.localStorage.getItem('lastFirstAidSubId') : null;
+              if (lastSaved) setSubCategoryId(Number(lastSaved));
+            }
+            setShowFirstAid(true);
+          }}
         />
+      )}
+
+      {/* First Aid Gallery Modal */}
+      <FirstAidGalleryModal
+        open={showFirstAid}
+        onClose={() => setShowFirstAid(false)}
+        items={firstAidItems}
+      />
+
+      {/* Optionally show a very light inline loader while fetching First Aid right after clicking */}
+      {showFirstAid && subCategoryId && firstAidLoading && (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-black/20">
+          <div className="rounded-xl bg-white px-4 py-2 text-sm shadow">Loading first aid…</div>
+        </div>
       )}
     </>
   );

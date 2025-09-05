@@ -1,4 +1,3 @@
-// components/shared/GlassBottomNav.tsx
 "use client";
 
 import Link from "next/link";
@@ -13,6 +12,13 @@ import {
   ClipboardList,
   LogOut,
   BriefcaseMedical,
+  MapPin,
+  HeartPulse,
+  User as UserIcon,
+  Phone as PhoneIcon,
+  Navigation,
+  ExternalLink,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
@@ -42,6 +48,17 @@ type AnyNotif =
       text?: string;
       createdAt?: string;
       read?: boolean;
+      type?: string;
+      meta?: {
+        emergencyId?: string;
+        categoryName?: string | null;
+        address?: string | null;
+        civilianName?: string | null;
+        phoneNumber?: string | null;
+        latitude?: number;
+        longitude?: number;
+        description?: string | null;
+      };
     };
 
 type NormalizedNotification = {
@@ -50,9 +67,21 @@ type NormalizedNotification = {
   message: string;
   createdAt?: string;
   read?: boolean;
+  type?: string;
+  meta?: {
+    emergencyId?: string;
+    categoryName?: string | null;
+    address?: string | null;
+    civilianName?: string | null;
+    phoneNumber?: string | null;
+    latitude?: number;
+    longitude?: number;
+    description?: string | null;
+  };
 };
 
 const CIVILIAN_KEY = "resq_civilian";
+const NEXT_PUBLIC_GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
 
 /* --------------------------------- Data --------------------------------- */
 
@@ -109,11 +138,12 @@ function normalizeNotifications(raw: unknown): NormalizedNotification[] {
     const created = typeof n.createdAt === "string" ? n.createdAt : undefined;
     const read = typeof n.read === "boolean" ? n.read : undefined;
     const id = n.id != null ? String(n.id) : String(idx);
-    return { id, title: ttl, message: msg || "(no message)", createdAt: created, read };
+    const type = (n as any)?.type ?? undefined;
+    const meta = (n as any)?.meta ?? undefined;
+    return { id, title: ttl, message: msg || "(no message)", createdAt: created, read, type, meta };
   });
 }
 
-// parse localStorage that might be single- or double-stringified
 function parseJsonSafe<T = unknown>(raw: string | null): T | null {
   if (!raw) return null;
   try {
@@ -139,7 +169,7 @@ export default function GlassBottomNav() {
 
   const [statusModalOpen, setStatusModalOpen] = useState(false);
 
-  /* ---- Civilian from localStorage (robust to different stored shapes) ---- */
+  /* ---- Civilian from localStorage ---- */
   const [civilianLS, setCivilianLS] = useState<LoginCivilian | null>(null);
 
   useEffect(() => {
@@ -175,7 +205,6 @@ export default function GlassBottomNav() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<NormalizedNotification[]>([]);
 
-  // Stable key for this user's notifications
   const key = useMemo(() => {
     const id =
       civilianLS?.id ??
@@ -196,7 +225,6 @@ export default function GlassBottomNav() {
     }
   };
 
-  // Keep state in sync when LS changes (subscriber writes and emits this event)
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { key?: string } | undefined;
@@ -208,7 +236,6 @@ export default function GlassBottomNav() {
       window.removeEventListener("resq:notifications-changed", handler as EventListener);
   }, [key]);
 
-  // Push listener for instant UI update (filtered by this user's key)
   useEffect(() => {
     const handlePushNotification = (e: Event) => {
       const detail = (e as CustomEvent).detail as { key?: string; item?: AnyNotif } | undefined;
@@ -231,7 +258,6 @@ export default function GlassBottomNav() {
       window.removeEventListener("resq:notification-push", handlePushNotification as EventListener);
   }, [key]);
 
-  // Initial load + react to native storage change (e.g., other tabs)
   useEffect(() => {
     if (typeof window !== "undefined") loadNotifications();
     const onStorage = (e: StorageEvent) => {
@@ -247,8 +273,77 @@ export default function GlassBottomNav() {
     return unread > 0 ? unread : notifications.length;
   }, [notifications]);
 
-  /* ---------------------------- Profile menu state ---------------------------- */
+  /* ------------------------- Directions modal state ------------------------- */
+  type Dest = {
+    lat: number;
+    lng: number;
+    address?: string | null;
+    category?: string | null;
+    civilianName?: string | null;
+    phone?: string | null;
+  };
 
+  const [directionsOpen, setDirectionsOpen] = useState(false);
+  const [dest, setDest] = useState<Dest | null>(null);
+  const [origin, setOrigin] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Resolve current location when directions modal opens
+  useEffect(() => {
+    if (!directionsOpen) return;
+    if (!("geolocation" in navigator)) return;
+
+    const id = navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setOrigin({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      },
+      () => {
+        // ignore errors; we'll fall back to external buttons
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+    return () => {
+      try {
+        // nothing to clear in getCurrentPosition
+      } catch {}
+    };
+  }, [directionsOpen]);
+
+  // Mark as read in LS & state
+  const markNotificationRead = (id: string) => {
+    try {
+      const currentRaw = localStorage.getItem(key);
+      const current = currentRaw ? JSON.parse(currentRaw) : [];
+      const next = Array.isArray(current)
+        ? current.map((n: any) => (String(n.id) === id ? { ...n, read: true } : n))
+        : current;
+      localStorage.setItem(key, JSON.stringify(next));
+      window.dispatchEvent(new CustomEvent("resq:notifications-changed", { detail: { key } }));
+    } catch {}
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+  };
+
+  // Click handler to open directions
+  const onNotificationClick = (n: NormalizedNotification) => {
+    if (n.type === "nearby-emergency") {
+      const lat = n.meta?.latitude;
+      const lng = n.meta?.longitude;
+      if (typeof lat === "number" && typeof lng === "number") {
+        setDest({
+          lat,
+          lng,
+          address: n.meta?.address ?? null,
+          category: n.meta?.categoryName ?? n.message ?? null,
+          civilianName: n.meta?.civilianName ?? null,
+          phone: n.meta?.phoneNumber ?? null,
+        });
+        setNotifOpen(false);
+        setDirectionsOpen(true);
+        markNotificationRead(n.id);
+      }
+    }
+  };
+
+  /* ---------------------------- Profile menu state ---------------------------- */
   const [profileOpen, setProfileOpen] = useState(false);
   const profileItemRef = useRef<HTMLLIElement | null>(null);
 
@@ -302,7 +397,7 @@ export default function GlassBottomNav() {
         (user as any)?.nic ??
         "—",
       joinedDate:
-        civilianLS?.joinedDate ??
+        (civilianLS?.joinedDate as any) ??
         (user as any)?.joinedDate ??
         (user as any)?.createdAt ??
         new Date(),
@@ -336,7 +431,6 @@ export default function GlassBottomNav() {
               (pathname === href ||
                 (href !== "/" && pathname.startsWith(`${href}`)));
 
-            // Notifications button: opens the sheet (state stays in sync via events)
             if (isNotification) {
               const onClick = (e: React.MouseEvent) => {
                 e.preventDefault();
@@ -397,7 +491,6 @@ export default function GlassBottomNav() {
               );
             }
 
-            // Profile: anchored menu above the button
             if (isProfile) {
               const activeColor = colorMap[color].active;
               const idleColor = `text-slate-700 dark:text-slate-100 ${colorMap[color].hover}`;
@@ -462,7 +555,6 @@ export default function GlassBottomNav() {
                       aria-label="Profile menu"
                       className="absolute bottom-[calc(100%+10px)] right-0 min-w-[220px] rounded-2xl border border-white/25 bg-white/80 p-2 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/80 dark:ring-white/10"
                     >
-                      {/* Arrow */}
                       <div className="pointer-events-none absolute -bottom-2 right-6 h-4 w-4 rotate-45 rounded-sm bg-white/80 ring-1 ring-black/5 dark:bg-slate-900/80 dark:ring-white/10" />
 
                       <button
@@ -503,7 +595,6 @@ export default function GlassBottomNav() {
               );
             }
 
-            // Default items
             return (
               <li key={href}>
                 <Link href={href} className="group relative block" aria-current={active ? "page" : undefined}>
@@ -562,27 +653,103 @@ export default function GlassBottomNav() {
           </div>
         ) : (
           <ul className="divide-y divide-slate-200 dark:divide-slate-800 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800">
-            {notifications.map((n) => (
-              <li key={n.id} className="flex items-start gap-3 bg-white/60 p-3 backdrop-blur-sm dark:bg-slate-900/60">
-                <div className="mt-1 h-2.5 w-2.5 flex-shrink-0 rounded-full bg-rose-500/90" aria-hidden />
-                <div className="min-w-0">
-                  {n.title && (
-                    <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                      {n.title}
-                    </p>
-                  )}
-                  <p className="text-[13px] text-slate-700 dark:text-slate-200">{n.message}</p>
-                  {n.createdAt && (
-                    <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                      {new Date(n.createdAt).toLocaleString()}
-                    </p>
-                  )}
-                </div>
-              </li>
-            ))}
+            {notifications.map((n) => {
+              const isNearby = n.type === "nearby-emergency";
+              const cat = n.meta?.categoryName ?? n.message;
+              const addr = n.meta?.address ?? "";
+              const civName = n.meta?.civilianName ?? "";
+              const phone = n.meta?.phoneNumber ?? "";
+              const clickable = isNearby && typeof n.meta?.latitude === "number" && typeof n.meta?.longitude === "number";
+
+              return (
+                <li key={n.id}>
+                  <button
+                    className="w-full text-left bg-white/60 backdrop-blur-sm dark:bg-slate-900/60 p-3 hover:bg-white/80 dark:hover:bg-slate-900/80 transition"
+                    onClick={() => clickable && onNotificationClick(n)}
+                    disabled={!clickable}
+                    aria-disabled={!clickable}
+                  >
+                    {isNearby ? (
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-rose-500/10 ring-1 ring-rose-200 dark:ring-rose-800">
+                          <HeartPulse className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-semibold text-slate-900 dark:text-slate-50">
+                            {n.title ?? "Someone near needs your help"}
+                          </p>
+
+                          {cat && (
+                            <div className="mt-1 flex items-center gap-2 text-[13px] text-slate-800 dark:text-slate-200">
+                              <HeartPulse className="h-4 w-4 opacity-80" />
+                              <span className="truncate">{cat}</span>
+                            </div>
+                          )}
+
+                          {addr && (
+                            <div className="mt-1 flex items-center gap-2 text-[13px] text-slate-800 dark:text-slate-200">
+                              <MapPin className="h-4 w-4 opacity-80" />
+                              <span className="line-clamp-2">{addr}</span>
+                            </div>
+                          )}
+
+                          {civName && (
+                            <div className="mt-1 flex items-center gap-2 text-[13px] text-slate-800 dark:text-slate-200">
+                              <UserIcon className="h-4 w-4 opacity-80" />
+                              <span className="truncate">{civName}</span>
+                            </div>
+                          )}
+
+                          {phone && (
+                            <div className="mt-1 flex items-center gap-2 text-[13px] text-slate-800 dark:text-slate-200">
+                              <PhoneIcon className="h-4 w-4 opacity-80" />
+                              <a className="underline decoration-dotted" href={`tel:${phone}`}>
+                                {phone}
+                              </a>
+                            </div>
+                          )}
+
+                          {n.createdAt && (
+                            <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                              {new Date(n.createdAt).toLocaleString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-3">
+                        <div className="mt-1 h-2.5 w-2.5 flex-shrink-0 rounded-full bg-rose-500/90" aria-hidden />
+                        <div className="min-w-0">
+                          {n.title && (
+                            <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">
+                              {n.title}
+                            </p>
+                          )}
+                          <p className="text-[13px] text-slate-700 dark:text-slate-200">{n.message}</p>
+                          {n.createdAt && (
+                            <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                              {new Date(n.createdAt).toLocaleString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </BottomSheet>
+
+      {/* Directions Modal */}
+      <DirectionsModal
+        open={directionsOpen}
+        onClose={() => setDirectionsOpen(false)}
+        dest={dest}
+        origin={origin}
+      />
 
       {/* Account Bottom Sheet with ProfileCard */}
       <BottomSheet open={accountOpen} onClose={() => setAccountOpen(false)} title=" ">
@@ -597,5 +764,120 @@ export default function GlassBottomNav() {
         onRequested={(msg) => console.log("Status request submitted:", msg)}
       />
     </>
+  );
+}
+
+/* ----------------------------- Directions Modal ----------------------------- */
+
+function DirectionsModal({
+  open,
+  onClose,
+  dest,
+  origin,
+}: {
+  open: boolean;
+  onClose: () => void;
+  dest: { lat: number; lng: number; address?: string | null; category?: string | null; civilianName?: string | null; phone?: string | null } | null;
+  origin: { lat: number; lng: number } | null;
+}) {
+  if (!open || !dest) return null;
+
+  const hasEmbed = Boolean(NEXT_PUBLIC_GOOGLE_API_KEY && origin);
+  const destQ = `${dest.lat},${dest.lng}`;
+  const originQ = origin ? `${origin.lat},${origin.lng}` : "Current+Location";
+
+  const gmapsEmbed = hasEmbed
+    ? `https://www.google.com/maps/embed/v1/directions?key=${NEXT_PUBLIC_GOOGLE_API_KEY}&origin=${encodeURIComponent(
+        originQ
+      )}&destination=${encodeURIComponent(destQ)}&mode=driving`
+    : null;
+
+  const gmapsExternal = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+    destQ
+  )}&travelmode=driving${origin ? `&origin=${encodeURIComponent(originQ)}` : ""}&dir_action=navigate`;
+
+  const appleMaps = `http://maps.apple.com/?daddr=${encodeURIComponent(destQ)}&dirflg=d`;
+
+  return (
+    <div className="fixed inset-0 z-[1600]">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+
+      {/* Panel */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="absolute left-1/2 top-1/2 w-[min(920px,92vw)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/10 dark:bg-slate-900 dark:ring-white/10"
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 p-3 dark:border-slate-800">
+          <div>
+            <div className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+              Directions to {dest.category ?? "Emergency"}
+            </div>
+            {dest.address && (
+              <div className="text-xs text-slate-600 dark:text-slate-300 line-clamp-1">
+                <MapPin className="mr-1 inline-block h-3.5 w-3.5" />
+                {dest.address}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-full p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Map area */}
+        <div className="aspect-[16/10] w-full bg-slate-100 dark:bg-slate-800">
+          {gmapsEmbed ? (
+            <iframe
+              title="Directions"
+              src={gmapsEmbed}
+              className="h-full w-full border-0"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+          ) : (
+            // Fallback preview pin if no embed key or no geolocation
+            <iframe
+              title="Map preview"
+              src={`https://maps.google.com/maps?q=${encodeURIComponent(destQ)}&z=15&output=embed`}
+              className="h-full w-full border-0"
+              loading="lazy"
+            />
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 p-3 dark:border-slate-800">
+          <div className="text-xs text-slate-600 dark:text-slate-300">
+            {origin ? "Using your current location for directions." : "We’ll open your maps app for live navigation."}
+          </div>
+          <div className="flex items-center gap-2">
+            <a
+              href={gmapsExternal}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              <Navigation className="h-4 w-4" />
+              Open in Google Maps
+            </a>
+            <a
+              href={appleMaps}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-xl bg-slate-200 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-300 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600"
+            >
+              <ExternalLink className="h-4 w-4" />
+              Open in Apple Maps
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

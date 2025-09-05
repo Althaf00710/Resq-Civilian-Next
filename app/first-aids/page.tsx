@@ -81,7 +81,7 @@ function GroupStackCard({
   );
 }
 
-function FirstAidGalleryModal({
+export function FirstAidGalleryModal({
   open,
   onClose,
   items,
@@ -95,7 +95,7 @@ function FirstAidGalleryModal({
   const title = items[0]?.emergencySubCategory?.name || 'First Aid';
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/60">
+    <div className="fixed inset-0 z-500 flex flex-col bg-black/60">
       <div className="relative mx-auto w-full max-w-6xl grow overflow-y-auto px-4 py-6">
         <motion.div
           initial={{ opacity: 0, scale: 0.98 }}
