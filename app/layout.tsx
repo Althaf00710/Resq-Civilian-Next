@@ -2,8 +2,10 @@ import type { Metadata } from 'next';
 import { Poppins } from 'next/font/google';
 import './globals.css';
 import GlassBottomNav from '@/components/shared/GlassBottomNav';
-import Providers from './providers'; 
+import Providers from './providers';
 import Footer from '@/components/shared/Footer';
+import LiveLocationMount from './LiveLocationMount'; 
+import NearbyEmergencyMount from './NearbyEmergencyMount';
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -20,11 +22,13 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${poppins.variable}`}>
+      <body className={poppins.variable}>
         <Providers>
+          <LiveLocationMount /> 
+          <NearbyEmergencyMount /> 
           {children}
           <GlassBottomNav />
-          <Footer/>
+          <Footer />
         </Providers>
       </body>
     </html>

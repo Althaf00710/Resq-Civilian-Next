@@ -9,6 +9,14 @@ export const GET_ACTIVE_VEHICLE_REQUEST = gql`
       }
     ) {
       id
+    }
+  }
+`;
+
+export const GET_RESCUE_REQUEST_BY_ID = gql`
+  query GetRescueRequestById($id: Int!) {
+    rescueVehicleRequestById(id: $id) {
+      id
       isActive
       status
       createdAt
@@ -22,8 +30,15 @@ export const GET_ACTIVE_VEHICLE_REQUEST = gql`
           plateNumber
           code
           rescueVehicleCategory { name }
+          rescueVehicleLocations {
+            id
+            latitude
+            longitude
+          }
         }
       }
     }
   }
 `;
+
+

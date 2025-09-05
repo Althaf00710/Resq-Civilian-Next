@@ -1,13 +1,15 @@
 import { gql } from '@apollo/client';
 
 export const VEHICLE_LOCATION_SHARE_SUB = gql`
-  subscription {
-    onVehicleLocationShare {
+  subscription OnVehicleLocationShare($rescueVehicleId: Int!) {
+    onVehicleLocationShareByVehicle(rescueVehicleId: $rescueVehicleId) {
       rescueVehicleId
-      longitude
+      active
+      address
+      lastActive
       latitude
+      longitude
       rescueVehicle {
-        plateNumber
         code
         rescueVehicleCategory {
           emergencyToVehicles { emergencyCategory { icon } }
@@ -16,3 +18,4 @@ export const VEHICLE_LOCATION_SHARE_SUB = gql`
     }
   }
 `;
+

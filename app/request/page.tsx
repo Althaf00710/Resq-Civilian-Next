@@ -1,126 +1,287 @@
-// app/(whatever)/request/page.tsx
 'use client';
-import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import { useQuery, useMutation, useSubscription } from '@apollo/client';
-import Swal from 'sweetalert2'; // <-- add
+import { useQuery, useMutation, useSubscription, gql } from '@apollo/client';
+import Swal from 'sweetalert2';
+
 import EmergencyRequestModal from '@/components-page/request/EmergencyRequestModal';
 import RequestStatusModal from '@/components-page/request/RequestStatusModal';
+
 import { GET_EMERGENCY_WITH_SUB } from '@/graphql/Queries/emergencyCategoryQueries';
 import type { GetEmergencyCategoriesData } from '@/graphql/types/emergencyCategory';
+
 import { CREATE_RESCUE_VEHICLE_REQUEST } from '@/graphql/mutations/vehicleRequestMutations';
+import { CANCEL_RESCUE_VEHICLE_REQUEST } from '@/graphql/mutations/rescueVehicleRequestMutation';
+
 import { VEHICLE_REQUEST_STATUS_SUB } from '@/graphql/subscriptions/vehicleRequestSubscription';
 import { VEHICLE_LOCATION_SHARE_SUB } from '@/graphql/subscriptions/vehicleLocationSubscription';
-import { GET_ACTIVE_VEHICLE_REQUEST } from '@/graphql/Queries/vehicleRequestQueries';
-import { CANCEL_RESCUE_VEHICLE_REQUEST } from '@/graphql/mutations/rescueVehicleRequestMutation'; // <-- you already had this
+
+import type { OnRescueVehicleRequestStatusChangedPayload } from '@/graphql/types/rescueVehicleRequest';
 import { loadSession } from '@/lib/auth';
 
+// Map (client-only)
 const Map = dynamic(() => import('@/components-page/request/Map'), { ssr: false });
 
 export default function Page() {
+  // --- GraphQL: categories ---
   const { data: catsData } = useQuery<GetEmergencyCategoriesData>(GET_EMERGENCY_WITH_SUB);
-  const [createRequest] = useMutation(CREATE_RESCUE_VEHICLE_REQUEST);
 
+  // --- Mutations ---
+  const [createRequest] = useMutation(CREATE_RESCUE_VEHICLE_REQUEST);
+  const [cancelMutation] = useMutation(CANCEL_RESCUE_VEHICLE_REQUEST);
+
+  // --- UI / State ---
   const [requestId, setRequestId] = useState<string | number | null>(null);
   const [status, setStatus] = useState<string>('Searching');
   const [createdAt, setCreatedAt] = useState<string | Date | undefined>(undefined);
+
   const [vehicleId, setVehicleId] = useState<number | null>(null);
-  const [vehicleMarker, setVehicleMarker] = useState<{ id: number; lat: number; lng: number; label?: string } | null>(null);
+  const [vehicleMarker, setVehicleMarker] = useState<{
+    id: number;
+    lat: number;
+    lng: number;
+    label?: string;
+    iconify?: string;
+  } | null>(null);
+
+  // NEW: details for the status modal
+  const [vehicleCode, setVehicleCode] = useState<string | null>(null);
+  const [plateNumber, setPlateNumber] = useState<string | null>(null);
 
   const [picked, setPicked] = useState<{ lat: number; lng: number; address?: string | null } | null>(null);
   const [showReqModal, setShowReqModal] = useState(true);
   const [showStatusModal, setShowStatusModal] = useState(false);
 
+  // --- Reopen request UI after cancel ---
   const reopenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const scheduleReopen = useCallback(() => {
     if (reopenTimerRef.current) clearTimeout(reopenTimerRef.current);
     reopenTimerRef.current = setTimeout(() => {
-      // reset view back to the request flow
       setShowStatusModal(false);
       setShowReqModal(true);
-
-      // optional: clear request-specific state
       setRequestId(null);
       setVehicleId(null);
       setVehicleMarker(null);
+      setVehicleCode(null);
+      setPlateNumber(null);
       setPicked(null);
       setCreatedAt(undefined);
       setStatus('Searching');
     }, 5000);
   }, []);
-
   useEffect(() => {
     return () => {
       if (reopenTimerRef.current) clearTimeout(reopenTimerRef.current);
     };
   }, []);
-
   useEffect(() => {
-    if (typeof status === 'string' && status.toLowerCase().includes('cancel')) {
-      scheduleReopen();
-    }
+    if ((status ?? '').toLowerCase().includes('cancel')) scheduleReopen();
   }, [status, scheduleReopen]);
 
-  // Recover active request on refresh
-  const { civilian } = useMemo(() => loadSession(), []);
-  const civilianIdNum = useMemo(
-    () => (civilian?.id != null && Number.isFinite(Number(civilian.id)) ? Number(civilian.id) : null),
-    [civilian]
-  );
+  // --- Session / Civilian ---
+  const [civilianIdNum, setCivilianIdNum] = useState<number | null>(null);
+  useEffect(() => {
+    const { civilian } = loadSession();
+    setCivilianIdNum(civilian?.id != null && Number.isFinite(Number(civilian.id)) ? Number(civilian.id) : null);
+  }, []);
 
-  const { data } = useQuery(GET_ACTIVE_VEHICLE_REQUEST, {
-    variables: { civilianId: civilianIdNum! },
+  // 1) Get active request ID(s)
+  const { data: activeIdData } = useQuery(GET_ACTIVE_VEHICLE_REQUEST, {
+    variables: civilianIdNum != null ? { civilianId: civilianIdNum } : undefined,
     fetchPolicy: 'network-only',
     skip: civilianIdNum == null,
   });
+  const activeId = activeIdData?.vehicleRequestPaging?.[0]?.id ?? null;
 
+  // 2) Fetch full request by ID
+  const { data: rescueData } = useQuery(GET_RESCUE_REQUEST_BY_ID, {
+    variables: activeId ? { id: Number(activeId) } : undefined,
+    skip: !activeId,
+    fetchPolicy: 'network-only',
+  });
+
+  // Bootstrap state once from full request
+  const bootstrappedRef = useRef(false);
   useEffect(() => {
-    const list = (data?.vehicleRequestPaging ?? []) as Array<{
-      id: string | number;
-      status: string;
-      createdAt: string;
-      rescueVehicleAssignments?: Array<{ rescueVehicleId?: number }>;
-    }>;
-    if (!list.length) return;
+    if (bootstrappedRef.current) return;
+    const r = rescueData?.rescueVehicleRequestById;
+    if (!r) return;
 
-    const active = [...list].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0];
-    setRequestId(active.id);
-    setStatus(active.status);
-    setCreatedAt(active.createdAt);
+    bootstrappedRef.current = true;
+
+    setRequestId(r.id);
+    setStatus(r.status);
+    setCreatedAt(r.createdAt);
+
+    if (r.latitude != null && r.longitude != null) {
+      setPicked({ lat: Number(r.latitude), lng: Number(r.longitude) });
+    }
+
     setShowReqModal(false);
     setShowStatusModal(true);
 
-    const rvId = active.rescueVehicleAssignments?.[0]?.rescueVehicleId;
-    if (rvId) setVehicleId(rvId);
-  }, [data]);
+    const assignment = r.rescueVehicleAssignments?.[0];
+    if (assignment?.rescueVehicleId) setVehicleId(assignment.rescueVehicleId);
 
-  // Live status subscription
-  useSubscription(VEHICLE_REQUEST_STATUS_SUB, {
+    // Fill code & plate
+    setVehicleCode(assignment?.rescueVehicle?.code ?? null);
+    setPlateNumber(assignment?.rescueVehicle?.plateNumber ?? null);
+
+    const locs = assignment?.rescueVehicle?.rescueVehicleLocations ?? [];
+    const latest = locs[0];
+    if (latest && assignment?.rescueVehicleId) {
+      setVehicleMarker({
+        id: assignment.rescueVehicleId,
+        lat: Number(latest.latitude),
+        lng: Number(latest.longitude),
+        label: assignment?.rescueVehicle?.code,
+        iconify:
+          assignment?.rescueVehicle?.rescueVehicleCategory?.name === 'Ambulance'
+            ? 'fluent-emoji-flat:ambulance'
+            : undefined,
+      });
+    }
+  }, [rescueData]);
+
+  // Helpers to read sub payload shapes
+  function extractVehicleId(ev: any): number | null {
+    const a = ev?.rescueVehicleAssignments;
+    if (!a) return null;
+    return Array.isArray(a) ? a[0]?.rescueVehicleId ?? null : a.rescueVehicleId ?? null;
+  }
+  function extractVehicleObj(ev: any) {
+    const a = ev?.rescueVehicleAssignments;
+    if (!a) return null;
+    const node = Array.isArray(a) ? a[0] : a;
+    return node?.rescueVehicle ?? null;
+  }
+
+  // --- Status subscription (scoped by requestId) ---
+  const statusEvtCount = useRef(0);
+  const { data: statusData, error: statusSubErr } =
+    useSubscription<{ onRescueVehicleRequestStatusChanged: OnRescueVehicleRequestStatusChangedPayload }>(
+      VEHICLE_REQUEST_STATUS_SUB,
+      {
+        variables: requestId ? { requestId: Number(requestId) } : undefined,
+        skip: !requestId,
+        fetchPolicy: 'no-cache',
+        shouldResubscribe: true,
+        onData: ({ data }) => {
+          const ev = data?.data?.onRescueVehicleRequestStatusChanged;
+          console.log('[SUB][status] #', ++statusEvtCount.current, ev);
+          if (!ev) return;
+
+          setRequestId(ev.id);
+          setStatus(ev.status);
+          setCreatedAt(ev.createdAt);
+
+          const rvId = extractVehicleId(ev);
+          if (rvId != null) setVehicleId((v) => (v == null ? Number(rvId) : v));
+
+          // backfill code/plate
+          const rv = extractVehicleObj(ev);
+          if (rv?.code) setVehicleCode((prev) => prev ?? rv.code);
+          if (rv?.plateNumber) setPlateNumber((prev) => prev ?? rv.plateNumber);
+
+          setShowStatusModal(true);
+          setShowReqModal(false);
+        },
+      }
+    );
+  useEffect(() => {
+    if (statusData) console.log('[SUB][status] snapshot:', statusData);
+    if (statusSubErr) console.error('[SUB][status] error:', statusSubErr);
+  }, [statusData, statusSubErr]);
+
+  // --- Location subscription (starts when not Searching & not terminal) ---
+  const isSearching  = /search/i.test(status || '');
+  const isCompleted  = /(complete|done)/i.test(status || '');   // Completed/Done
+  const isActiveLeg  = /dispatch|arriv/i.test(status || '');    // Dispatched or Arrived
+  const shouldTrack  = !!vehicleId && isActiveLeg && !isSearching && !isCompleted;
+
+  // On Completed → fully reset to "create request" view
+  useEffect(() => {
+    if (!isCompleted) return;
+
+    setVehicleMarker(null);
+    setVehicleId(null);
+    setVehicleCode(null);
+    setPlateNumber(null);
+    setRequestId(null);
+    setPicked(null);
+    setCreatedAt(undefined);
+    setStatus('Searching');
+
+    setShowStatusModal(false);
+    setShowReqModal(true);
+
+    console.log('[FLOW] Completed → reset UI and stop tracking');
+  }, [isCompleted]);
+
+  // helpful debug: when tracking flips on/off
+  useEffect(() => {
+    console.log('[SUB][loc] tracking state →', { shouldTrack, vehicleId, status });
+  }, [shouldTrack, vehicleId, status]);
+
+  // event counter for pretty logs
+  const locEvtCount = useRef(0);
+
+  const { data: locData, error: locSubErr } = useSubscription(VEHICLE_LOCATION_SHARE_SUB, {
+    variables: shouldTrack ? { rescueVehicleId: Number(vehicleId) } : undefined,
+    skip: !shouldTrack,
+    fetchPolicy: 'no-cache',
+    shouldResubscribe: true,
     onData: ({ data }) => {
-      const ev = data.data?.onRescueVehicleRequestStatusChanged;
-      if (!ev || !requestId || String(ev.id) !== String(requestId)) return;
-      setStatus(ev.status);
-      setCreatedAt(ev.createdAt);
-      const rvId = ev.rescueVehicleAssignments?.[0]?.rescueVehicleId;
-      if (rvId && !vehicleId) setVehicleId(rvId);
+      const loc = (data as any)?.data?.onVehicleLocationShareByVehicle;
+
+      console.log(
+        `[SUB][loc] #${++locEvtCount.current}`,
+        loc
+          ? {
+              rescueVehicleId: loc.rescueVehicleId,
+              active: loc.active,
+              lat: loc.latitude,
+              lng: loc.longitude,
+              lastActive: loc.lastActive,
+              code: loc?.rescueVehicle?.code,
+            }
+          : '(no payload)'
+      );
+
+      if (!loc) return;
+      if (Number(loc.rescueVehicleId) !== Number(vehicleId)) return;
+
+      // fill in code/plate if we didn't have it yet
+      if (loc?.rescueVehicle?.code && !vehicleCode) setVehicleCode(loc.rescueVehicle.code);
+      if (loc?.rescueVehicle?.plateNumber && !plateNumber) setPlateNumber(loc.rescueVehicle.plateNumber);
+
+      setVehicleMarker({
+        id: Number(loc.rescueVehicleId),
+        lat: Number(loc.latitude),
+        lng: Number(loc.longitude),
+        label: loc?.rescueVehicle?.code ?? vehicleCode ?? undefined,
+        iconify:
+          loc?.rescueVehicle?.rescueVehicleCategory?.emergencyToVehicles?.[0]?.emergencyCategory?.icon ?? undefined,
+      });
     },
   });
 
-  // Live location share
-  useSubscription(VEHICLE_LOCATION_SHARE_SUB, {
-    onData: ({ data }) => {
-      const loc = data.data?.onVehicleLocationShare;
-      if (!loc || !vehicleId || Number(loc.rescueVehicleId) !== Number(vehicleId)) return;
-      const label = loc?.rescueVehicle?.code ?? undefined;
-      setVehicleMarker({ id: Number(loc.rescueVehicleId), lat: loc.latitude, lng: loc.longitude, label });
-    },
-  });
+  useEffect(() => {
+    if (locData) console.log('[SUB][loc] hook snapshot:', JSON.parse(JSON.stringify(locData)));
+  }, [locData]);
+  useEffect(() => {
+    if (locSubErr) {
+      console.error('[SUB][loc] error:', {
+        message: locSubErr.message,
+        graphQLErrors: locSubErr.graphQLErrors?.map((e) => ({ msg: e.message, path: e.path, extensions: e.extensions })),
+        networkError: (locSubErr.networkError as any)?.result ?? locSubErr.networkError,
+      });
+    }
+  }, [locSubErr]);
 
   // --- Cancel flow ---
-  const [cancelMutation] = useMutation(CANCEL_RESCUE_VEHICLE_REQUEST);
-
-  const handleCancelRequest = async () => {
+  const handleCancelRequest = useCallback(async () => {
     if (!requestId) return;
 
     const { isConfirmed } = await Swal.fire({
@@ -137,7 +298,7 @@ export default function Page() {
 
     try {
       await cancelMutation({
-        variables: { id: Number(requestId), status: "Cancelled"}, // adjust if your mutation needs different vars
+        variables: { id: Number(requestId), status: 'Cancelled' },
         optimisticResponse: {
           cancelRescueVehicleRequest: {
             __typename: 'CancelRescueVehicleRequestPayload',
@@ -160,26 +321,42 @@ export default function Page() {
         icon: 'error',
       });
     }
-  };
+  }, [cancelMutation, requestId]);
+
+  // --- Map selected change ---
+  const handleMapChange = useCallback((pos: { lat: number; lng: number; address?: string | null }) => {
+    setPicked(pos);
+  }, []);
 
   return (
     <>
-      <Map onChange={(pos) => setPicked(pos)} vehicleMarker={vehicleMarker} />
+      <Map
+        key={`map-${requestId ?? 'new'}`}
+        onChange={handleMapChange}
+        initialCenter={picked ? { lat: picked.lat, lng: picked.lng } : undefined}
+        vehicleMarker={
+          vehicleMarker
+            ? {
+                id: vehicleMarker.id,
+                lat: vehicleMarker.lat,
+                lng: vehicleMarker.lng,
+                label: vehicleMarker.label,
+                iconUrl: '/vehicle.png', // fallback image
+              }
+            : null
+        }
+        requestedLocation={picked ? { lat: picked.lat, lng: picked.lng } : null}
+        status={status}
+        allowPicking={showReqModal} // only before request is created
+      />
 
-      {/* Emergency Request */}
       {showReqModal && (
         <EmergencyRequestModal
           categories={catsData?.emergencyCategories ?? []}
           onSubmit={async (payload) => {
-            if (!picked) {
-              alert('Please move the map to select a location first.');
-              return;
-            }
+            if (!picked) return alert('Please move the map to select a location first.');
             const subIdNum = Number(payload.emergencySubCategoryId);
-            if (!Number.isFinite(subIdNum)) {
-              alert('Invalid subcategory selection.');
-              return;
-            }
+            if (!Number.isFinite(subIdNum)) return alert('Invalid subcategory selection.');
 
             try {
               const { data: mData } = await createRequest({
@@ -197,7 +374,9 @@ export default function Page() {
               });
 
               const res = mData?.createRescueVehicleRequest;
-              if (!res?.success || !res.rescueVehicleRequest?.id) throw new Error(res?.message || 'Failed to create request');
+              if (!res?.success || !res.rescueVehicleRequest?.id) {
+                throw new Error(res?.message || 'Failed to create request');
+              }
 
               setRequestId(res.rescueVehicleRequest.id);
               setStatus(res.rescueVehicleRequest.status);
@@ -212,16 +391,62 @@ export default function Page() {
         />
       )}
 
-      {/* Live Request Status */}
       {showStatusModal && requestId && (
         <RequestStatusModal
           isOpen
           data={{ id: requestId, status, createdAt }}
+          // 👇 pass vehicle details for the modal to display
+          vehicle={{ code: vehicleCode ?? undefined, plateNumber: plateNumber ?? undefined, iconUrl: '/vehicle.png' }}
           allowClose
           onClose={() => setShowStatusModal(false)}
-          cancelRequest={handleCancelRequest} 
+          cancelRequest={handleCancelRequest}
         />
       )}
     </>
   );
 }
+
+/* ------------------ GraphQL ------------------ */
+
+// 1) Get only active request IDs
+export const GET_ACTIVE_VEHICLE_REQUEST = gql`
+  query GetActiveVehicleRequest($civilianId: Int!) {
+    vehicleRequestPaging(
+      where: {
+        civilianId: { eq: $civilianId }
+        status: { in: ["Searching", "Dispatched", "Arrived"] }
+      }
+    ) {
+      id
+    }
+  }
+`;
+
+// 2) Fetch full request by ID
+export const GET_RESCUE_REQUEST_BY_ID = gql`
+  query GetRescueRequestById($id: Int!) {
+    rescueVehicleRequestById(id: $id) {
+      id
+      isActive
+      status
+      createdAt
+      longitude
+      latitude
+      rescueVehicleAssignments {
+        id
+        rescueVehicleId
+        rescueVehicle {
+          id
+          plateNumber
+          code
+          rescueVehicleCategory { name }
+          rescueVehicleLocations {
+            id
+            latitude
+            longitude
+          }
+        }
+      }
+    }
+  }
+`;

@@ -50,3 +50,17 @@ export interface LoginCivilianResponse {
     } | null;
   };
 }
+
+export interface LoginCivilian {
+      id: number;
+      name: string;
+      email: string;
+      phoneNumber: string;
+      nicNumber: string;
+      joinedDate: string;
+      isRestrict: boolean;
+      civilianStatusId: number;
+      civilianStatus: {
+        role: string;
+      };
+  };

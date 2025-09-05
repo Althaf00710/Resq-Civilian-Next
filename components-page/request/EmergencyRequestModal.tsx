@@ -137,7 +137,7 @@ export default function EmergencyRequestModal({
         className="fixed inset-0 z-[301] flex items-end justify-center p-3 lg:items-center lg:justify-end lg:p-6 pointer-events-none"
       >
         {/* Panel: bottom sheet on phone, right-side middle on laptop */}
-        <div className="pointer-events-auto w-full sm:max-w-lg lg:w-[500px] max-h-[90dvh] overflow-y-auto rounded-t-2xl lg:rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 dark:bg-neutral-900 dark:text-neutral-100 dark:ring-white/10">
+        <div className="relative isolate pointer-events-auto w-full sm:max-w-lg lg:w-[500px] max-h-[90dvh] overflow-y-auto rounded-t-2xl lg:rounded-2xl bg-white/90 dark:bg-neutral-900/20 supports-[backdrop-filter]:bg-white/75 backdrop-blur-xl backdrop-saturate-100 border border-white/30 dark:border-white/15 shadow-2xl ring-1 ring-black/5 dark:ring-white/10">
           {/* Header */}
           <div className="flex items-center justify-between gap-3 border-b border-neutral-200/70 p-4 dark:border-neutral-800">
             <div>

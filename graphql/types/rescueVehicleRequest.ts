@@ -31,3 +31,35 @@ export function createVars(args: {
     proofImage: args.proofImage ?? null,
   };
 }
+
+
+export interface OnRescueVehicleRequestStatusChangedPayload {
+  id: string | number;
+  status: string;
+  createdAt: string;
+
+  rescueVehicleAssignments: {
+    id: string | number;
+    rescueVehicleId: number;
+    timestamp: string;
+    arrivalTime: string | null;
+    departureTime: string | null;
+    durationMinutes: number | null;
+
+    rescueVehicle: {
+      id: string | number;
+      plateNumber: string;
+      code: string;
+      rescueVehicleCategoryId: number;
+
+      rescueVehicleCategory: {
+        name: string;
+        emergencyToVehicles: {
+          emergencyCategory: {
+            icon: string;
+          };
+        }[];
+      };
+    };
+  }[];
+}

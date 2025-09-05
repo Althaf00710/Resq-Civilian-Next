@@ -4,14 +4,23 @@ import { Ambulance } from 'lucide-react';
 
 const Hero = () => {
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-hero-gradient">
-      <div className="absolute inset-0 bg-blue-800" />
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
+      {/* Background image + subtle dark overlay */}
+      <Image
+        src="/images/bg.jpg"
+        alt=""               // decorative
+        fill
+        priority
+        sizes="100vw"
+        className="object-cover object-center pointer-events-none select-none"
+        aria-hidden
+      />
+      <div className="absolute inset-0 bg-blue-900/60" aria-hidden />
 
       <div className="container mx-auto px-8 py-20 relative z-10 ml-5">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
           {/* Left: copy */}
           <div className="text-center lg:text-left">
-            {/* Logo above headline */}
             <div className="mb-6 flex justify-center lg:justify-start">
               <Image
                 src="/images/Resq-white.png"
@@ -24,8 +33,8 @@ const Hero = () => {
 
             <h1 className="text-5xl lg:text-7xl font-bold text-white leading-tight">
               Stay Safe.
-              <br></br>
-              <span className="text-accent text-orange-500">We&apos;re Here</span>
+              <br />
+              <span className="text-orange-500">We&apos;re Here</span>
               <br />
               for You.
             </h1>
@@ -36,12 +45,12 @@ const Hero = () => {
             </p>
 
             <div className="mt-10">
-                <button
-                    className="inline-flex items-center gap-2 text-lg px-8 py-4 bg-orange-500 rounded-2xl text-white font-semibold shadow-lg hover:bg-orange-600 transition-colors cursor-pointer"
-                >
-                    <Ambulance className="w-5 h-5" aria-hidden="true" />
-                    Request Help
-                </button>
+              <button
+                className="inline-flex items-center gap-2 text-lg px-8 py-4 bg-orange-500 rounded-2xl text-white font-semibold shadow-lg hover:bg-orange-600 transition-colors cursor-pointer"
+              >
+                <Ambulance className="w-5 h-5" aria-hidden="true" />
+                Request Help
+              </button>
             </div>
           </div>
 
@@ -49,7 +58,7 @@ const Hero = () => {
           <div className="relative">
             <div className="relative rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/10">
               <Image
-                src="/images/hero.jpg" // from public/
+                src="/images/hero.jpg"
                 alt="Emergency team helping civilians"
                 width={1200}
                 height={800}
@@ -61,15 +70,15 @@ const Hero = () => {
             {/* 24/7 badge */}
             <div className="absolute -top-5 -left-5">
               <div className="rounded-full bg-white/80 px-4 py-5 shadow-xl border border-black/5 float-badge">
-                <div className="text-2xl font-extrabold text-primary glow-number text-blue-800">24/7</div>
+                <div className="text-2xl font-extrabold text-blue-800 glow-number">24/7</div>
                 <div className="text-xs text-muted-foreground">Available</div>
               </div>
             </div>
 
-            {/* < 5min badge */}
+            {/* Quick badge */}
             <div className="absolute -bottom-5 -right-5">
               <div className="rounded-full bg-white/80 px-4 py-7 shadow-xl border border-black/5 float-badge delay-700">
-                <div className="text-2xl font-extrabold text-accent glow-number text-orange-500">Quick</div>
+                <div className="text-2xl font-extrabold text-orange-500 glow-number">Quick</div>
                 <div className="text-xs text-muted-foreground">Response</div>
               </div>
             </div>
@@ -87,31 +96,16 @@ const Hero = () => {
       {/* Local animations */}
       <style jsx global>{`
         @keyframes floatY {
-          0% {
-            transform: translateY(0);
-          }
-          100% {
-            transform: translateY(-8px);
-          }
+          0% { transform: translateY(0); }
+          100% { transform: translateY(-8px); }
         }
-        .float-badge {
-          animation: floatY 3s ease-in-out infinite alternate;
-        }
-        .float-badge.delay-700 {
-          animation-delay: 0.7s;
-        }
+        .float-badge { animation: floatY 3s ease-in-out infinite alternate; }
+        .float-badge.delay-700 { animation-delay: 0.7s; }
         @keyframes glow {
-          0%,
-          100% {
-            filter: drop-shadow(0 0 0 rgba(255, 118, 46, 0));
-          }
-          50% {
-            filter: drop-shadow(0 0 10px rgba(255, 118, 46, 0.45));
-          }
+          0%, 100% { filter: drop-shadow(0 0 0 rgba(255, 118, 46, 0)); }
+          50% { filter: drop-shadow(0 0 10px rgba(255, 118, 46, 0.45)); }
         }
-        .glow-number {
-          animation: glow 2.2s ease-in-out infinite;
-        }
+        .glow-number { animation: glow 2.2s ease-in-out infinite; }
       `}</style>
     </section>
   );

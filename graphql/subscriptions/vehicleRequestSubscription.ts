@@ -28,8 +28,8 @@ export const VEHICLE_REQUEST_STATUS = gql`
 `;
 
 export const VEHICLE_REQUEST_STATUS_SUB = gql`
-  subscription {
-    onRescueVehicleRequestStatusChanged {
+  subscription OnRescueVehicleRequestStatusChanged($requestId: Int!) {
+    onRescueVehicleRequestStatusChanged(requestId: $requestId) {
       id
       status
       createdAt
@@ -47,9 +47,7 @@ export const VEHICLE_REQUEST_STATUS_SUB = gql`
           rescueVehicleCategoryId
           rescueVehicleCategory {
             name
-            emergencyToVehicles {
-              emergencyCategory { icon }
-            }
+            emergencyToVehicles { emergencyCategory { icon } }
           }
         }
       }
